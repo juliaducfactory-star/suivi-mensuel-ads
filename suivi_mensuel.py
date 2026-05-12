@@ -7,6 +7,8 @@ et les écrit dans le Google Sheet de suivi.
 
 import os
 import json
+import smtplib
+from email.mime.text import MIMEText
 from datetime import date, timedelta
 import requests
 import gspread
@@ -15,6 +17,9 @@ from google.auth.transport.requests import Request
 from dotenv import load_dotenv
 
 load_dotenv()
+
+GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
+NOTIFICATION_EMAIL = os.getenv("NOTIFICATION_EMAIL", "juliaducfactory@gmail.com")
 
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
 META_ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN")
@@ -206,6 +211,22 @@ def ecrire_donnees(worksheet, ligne_budget, col_mois, donnees):
         worksheet.update_cell(ligne_budget + i, col_mois, val)
 
 
+# ── Email ─────────────────────────────────────────────────────────────────────
+
+def envoyer_notification(sujet, corps):
+    if not GMAIL_APP_PASSWORD:
+        print("Email non configure, notification ignoree.")
+        return
+    msg = MIMEText(corps, "plain", "utf-8")
+    msg["Subject"] = sujet
+    msg["From"] = NOTIFICATION_EMAIL
+    msg["To"] = NOTIFICATION_EMAIL
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+        smtp.login(NOTIFICATION_EMAIL, GMAIL_APP_PASSWORD)
+        smtp.send_message(msg)
+    print(f"Notification envoyee a {NOTIFICATION_EMAIL}")
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
@@ -229,11 +250,16 @@ def main():
     # Colonne du mois dans le sheet
     col_mois = trouver_colonne_mois(premiere_ligne, mois_nom)
     if not col_mois:
-        print(f"ERREUR : colonne '{mois_nom}' introuvable dans le sheet.")
+        msg = f"ERREUR : colonne '{mois_nom}' introuvable dans le sheet."
+        print(msg)
+        envoyer_notification(f"[ERREUR] Suivi {mois_nom} {date_debut.year}", msg)
         return
+
+    lignes_resume = [f"Suivi mensuel {mois_nom} {date_debut.year} - Resultats\n"]
 
     # ── Google Ads ──
     print("=== Google Ads ===")
+    lignes_resume.append("=== Google Ads ===")
 
     for marque, customer_id in GOOGLE_ADS_ACCOUNTS.items():
         if not customer_id:
@@ -247,11 +273,17 @@ def main():
         if ligne:
             ecrire_donnees(worksheet, ligne, col_mois, donnees)
             print(f"    Ecrit lignes {ligne}-{ligne+4}, colonne {col_mois}")
+            lignes_resume.append(
+                f"  {marque} | Budget: {donnees['spend']}€ | Conv: {donnees['conversions']} | CAC: {donnees['cac']}€ | ROAS: {donnees['roas']}"
+            )
         else:
             print(f"    Ligne introuvable pour {marque} / Google")
+            lignes_resume.append(f"  {marque} : ERREUR ligne introuvable")
 
     # ── Meta Ads ──
     print("\n=== Meta Ads ===")
+    lignes_resume.append("\n=== Meta Ads ===")
+
     for marque, account_id in META_ACCOUNTS.items():
         if not account_id:
             continue
@@ -263,10 +295,18 @@ def main():
         if ligne:
             ecrire_donnees(worksheet, ligne, col_mois, donnees)
             print(f"    Ecrit lignes {ligne}-{ligne+4}, colonne {col_mois}")
+            lignes_resume.append(
+                f"  {marque} | Budget: {donnees['spend']}€ | Conv: {donnees['conversions']} | CAC: {donnees['cac']}€ | ROAS: {donnees['roas']}"
+            )
         else:
             print(f"    Ligne introuvable pour {marque} / Meta")
+            lignes_resume.append(f"  {marque} : ERREUR ligne introuvable")
 
     print("\nTermine !")
+    envoyer_notification(
+        f"[OK] Suivi {mois_nom} {date_debut.year} mis a jour",
+        "\n".join(lignes_resume)
+    )
 
 
 if __name__ == "__main__":
