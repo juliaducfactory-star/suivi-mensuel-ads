@@ -221,7 +221,8 @@ def envoyer_notification(sujet, corps):
     msg["Subject"] = sujet
     msg["From"] = NOTIFICATION_EMAIL
     msg["To"] = NOTIFICATION_EMAIL
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+    with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
+        smtp.starttls()
         smtp.login(NOTIFICATION_EMAIL, GMAIL_APP_PASSWORD)
         smtp.send_message(msg)
     print(f"Notification envoyee a {NOTIFICATION_EMAIL}")
